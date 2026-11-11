@@ -42,6 +42,40 @@ export default class MjmlService {
   }
 
   /**
+   * Normalise HTML entities inside inline style attribute values.
+   *
+   * Mautic issue #17575: an entity-encoded quote inside a style value (e.g.
+   * style="font-family:&quot;Segoe UI&quot;, Arial;") reaches juice's CSS
+   * parser with the entity text intact. The entity ends with a semicolon, so
+   * the CSS parser splits the declaration there and inline-css receives a
+   * declaration without a property name, which makes it evaluate
+   * e.prop.indexOf("--") on undefined and throw. The error is swallowed by
+   * mjmlToHtml(), so the builder save silently does nothing.
+   *
+   * Entity-encoded quotes are normalised to single quotes: valid CSS for a
+   * quoted font name, and it keeps the attribute quoting intact.
+   *
+   * @param {string} mjml
+   * @returns string
+   */
+  static normalizeStyleEntities(mjml) {
+    if (typeof mjml !== 'string') {
+      return mjml;
+    }
+
+    const lower = mjml.toLowerCase();
+    if (lower.indexOf('&quot;') === -1 && lower.indexOf('&apos;') === -1) {
+      return mjml;
+    }
+
+    return mjml.replace(/(style\s*=\s*)(["'])(.*?)\2/gi, (match, prefix, quote, value) => {
+      const normalized = value.replace(/&quot;/gi, "'").replace(/&apos;/gi, "'");
+
+      return normalized === value ? match : prefix + quote + normalized + quote;
+    });
+  }
+
+  /**
    * Transform MJML to HTML
    * @todo show validation errors in the UI
    * @returns string
@@ -52,6 +86,11 @@ export default class MjmlService {
       if (typeof mjml !== 'string' || !/<mjml(?:\s[^>]*)?>/i.test(mjml)) {
       throw new Error('No valid MJML provided');
     }
+
+    // Mautic issue #17575: entity-encoded quotes inside inline style values
+    // break juice's CSS parser (the entity ends with ';'), which makes
+    // mjmlToHtml() swallow a TypeError and leaves the builder save dead.
+    mjml = MjmlService.normalizeStyleEntities(mjml);
 
     if (endpoint !== '') {
       html = MjmlService.mjmlToHtmlViaEndpoint(mjml, endpoint);
