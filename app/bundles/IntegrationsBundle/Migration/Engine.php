@@ -69,11 +69,15 @@ class Engine
             // Do not call Doctrine's commit when the native PDO transaction is already closed.
             if ($this->isNativeTransactionActive()) {
                 $this->entityManager->commit();
+            } else {
+                $this->resetTransactionState();
             }
         } catch (DBALException $e) {
             // Preserve the migration exception when DDL has already closed the native transaction.
             if ($this->isNativeTransactionActive()) {
                 $this->entityManager->rollback();
+            } else {
+                $this->resetTransactionState();
             }
 
             throw $e;
@@ -85,6 +89,16 @@ class Engine
         $connection = $this->entityManager->getConnection()->getWrappedConnection();
 
         return !$connection instanceof \PDO || $connection->inTransaction();
+    }
+
+    /**
+     * Synchronize DBAL's transaction nesting state after native DDL auto-commit.
+     */
+    private function resetTransactionState(): void
+    {
+        $connection = $this->entityManager->getConnection();
+        $connection->close();
+        $connection->connect();
     }
 
     /**
