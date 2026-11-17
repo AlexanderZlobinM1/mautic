@@ -65,12 +65,26 @@ class Engine
                 }
             }
 
-            $this->entityManager->commit();
+            // PHP 8+ and pdo_mysql may auto-commit a transaction after a DDL statement.
+            // Do not call Doctrine's commit when the native PDO transaction is already closed.
+            if ($this->isNativeTransactionActive()) {
+                $this->entityManager->commit();
+            }
         } catch (DBALException $e) {
-            $this->entityManager->rollback();
+            // Preserve the migration exception when DDL has already closed the native transaction.
+            if ($this->isNativeTransactionActive()) {
+                $this->entityManager->rollback();
+            }
 
             throw $e;
         }
+    }
+
+    private function isNativeTransactionActive(): bool
+    {
+        $connection = $this->entityManager->getConnection()->getWrappedConnection();
+
+        return !$connection instanceof \PDO || $connection->inTransaction();
     }
 
     /**

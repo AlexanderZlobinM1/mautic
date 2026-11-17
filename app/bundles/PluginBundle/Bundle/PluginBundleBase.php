@@ -46,18 +46,30 @@ abstract class PluginBundleBase extends Bundle
         $schemaTool     = new SchemaTool($factory->getEntityManager());
         $installQueries = $schemaTool->getCreateSchemaSql($metadata);
 
-        $db->beginTransaction();
-        try {
-            foreach ($installQueries as $q) {
+        foreach ($installQueries as $q) {
+            // MySQL and MariaDB implicitly commit DDL statements, so execute them outside a transaction.
+            if (self::isDDLStatement($q)) {
                 $db->query($q);
+                continue;
             }
 
-            $db->commit();
-        } catch (\Exception $e) {
-            $db->rollback();
+            try {
+                $db->beginTransaction();
+                $db->query($q);
+                $db->commit();
+            } catch (\Exception $e) {
+                if ($db->isTransactionActive()) {
+                    $db->rollBack();
+                }
 
-            throw $e;
+                throw $e;
+            }
         }
+    }
+
+    private static function isDDLStatement($query)
+    {
+        return preg_match('/^(CREATE|ALTER|DROP|RENAME|TRUNCATE|COMMENT)\s/i', $query);
     }
 
     /**
